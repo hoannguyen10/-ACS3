@@ -14,6 +14,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+// Bảng màu đồng bộ
+private val GreenDeep = Color(0xFF3C7363)
+private val GreenMedium = Color(0xFF84D9BA)
+private val LightBlueBg = Color(0xFFE8F1FD)
+private val TextBlack = Color(0xFF121212)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppTopBar(
@@ -22,29 +28,30 @@ fun AppTopBar(
 ) {
     TopAppBar(
         title = {
-            // Logo và Tên App bên trái
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Logo placeholder - sử dụng màu GreenMedium
                 Surface(
                     modifier = Modifier.size(35.dp),
                     shape = CircleShape,
-                    color = Color(0xFFE0E0E0)
-                ) {}
+                    color = GreenMedium.copy(alpha = 0.3f)
+                ) {
+                    // Bạn có thể thêm Icon logo vào đây nếu muốn
+                }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     "MindSnack",
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.Black, // Đổi sang Black cho đồng bộ
                     fontSize = 20.sp,
-                    color = Color(0xFF1A73E8)
+                    color = GreenDeep // Đổi từ Blue sang GreenDeep
                 )
             }
         },
         actions = {
-            // Cụm bên phải: Streak + Chuông
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(end = 8.dp)
             ) {
-                // Thẻ Streak
+                // Thẻ Streak với màu cam rực rỡ (giữ nguyên để nổi bật hoặc dùng tông Green)
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color(0xFFFFF4E5),
@@ -58,19 +65,18 @@ fun AppTopBar(
                     )
                 }
 
-                // Chuông thông báo
                 IconButton(onClick = onNotificationClick) {
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Notifications",
-                        tint = Color(0xFF5F6368),
+                        tint = GreenDeep, // Đổi màu chuông
                         modifier = Modifier.size(26.dp)
                     )
                 }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color(0xFFF8FAFF) // Màu nền khớp với HomeScreen
+            containerColor = Color.White // Nền trắng đồng bộ với Scaffold
         )
     )
 }

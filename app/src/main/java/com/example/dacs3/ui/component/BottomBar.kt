@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 
+// Màu chủ đạo từ RegisterScreen
+private val GreenDeep = Color(0xFF3C7363)
+
 @Composable
 fun AppBottomBar(navController: NavController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -31,11 +34,10 @@ fun AppBottomBar(navController: NavController) {
             .wrapContentHeight(),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Thanh nền trắng với bo góc trên cực đại (30dp)
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(85.dp), // Tăng nhẹ chiều cao để chứa thêm chữ
+                .height(85.dp),
             color = Color.White,
             shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
             shadowElevation = 20.dp
@@ -43,14 +45,14 @@ fun AppBottomBar(navController: NavController) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 8.dp), // Đẩy nội dung lên một chút
+                    .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Mục Home
+                // Mục Trang chủ
                 NavigationItem(
                     icon = Icons.Outlined.Home,
-                    label = "Home",
+                    label = "Trang chủ",
                     isSelected = currentRoute == "home"
                 ) {
                     navController.navigate("home") {
@@ -58,31 +60,30 @@ fun AppBottomBar(navController: NavController) {
                     }
                 }
 
-                // Mục Library
+                // Mục Thư viện
                 NavigationItem(
                     icon = Icons.Outlined.MenuBook,
-                    label = "Library",
+                    label = "Thư viện",
                     isSelected = currentRoute == "library"
                 ) {
                     navController.navigate("library")
                 }
 
-                // Khoảng trống ở giữa cho nút Xúc xắc nổi
                 Spacer(modifier = Modifier.width(60.dp))
 
-                // Mục Goals
+                // Mục Mục tiêu
                 NavigationItem(
                     icon = Icons.Outlined.EmojiEvents,
-                    label = "Goals",
+                    label = "Mục tiêu",
                     isSelected = currentRoute == "goals"
                 ) {
                     navController.navigate("goals")
                 }
 
-                // Mục Profile
+                // Mục Cá nhân
                 NavigationItem(
                     icon = Icons.Outlined.Person,
-                    label = "Profile",
+                    label = "Cá nhân",
                     isSelected = currentRoute == "profile"
                 ) {
                     navController.navigate("profile")
@@ -90,20 +91,20 @@ fun AppBottomBar(navController: NavController) {
             }
         }
 
-        // Nút Xúc xắc (Random) nổi bật ở giữa
+        // Nút Ngẫu nhiên
         FloatingActionButton(
             onClick = { navController.navigate("random") },
             modifier = Modifier
                 .size(68.dp)
-                .offset(y = (-35).dp), // Đẩy nút lên trên để tạo hiệu ứng nổi
+                .offset(y = (-35).dp),
             shape = CircleShape,
-            containerColor = Color(0xFF00ADEF), // Màu xanh Cyan rực rỡ
+            containerColor = GreenDeep, // Đã đổi sang màu xanh lá đậm
             contentColor = Color.White,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 10.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Casino,
-                contentDescription = "Random",
+                contentDescription = "Ngẫu nhiên",
                 modifier = Modifier.size(32.dp)
             )
         }
@@ -117,7 +118,8 @@ fun NavigationItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val color = if (isSelected) Color(0xFF00ADEF) else Color(0xFF94A3B8)
+
+    val color = if (isSelected) GreenDeep else Color(0xFF94A3B8)
 
     Column(
         modifier = Modifier

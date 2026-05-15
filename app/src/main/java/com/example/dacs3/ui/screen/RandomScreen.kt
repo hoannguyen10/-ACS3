@@ -31,6 +31,12 @@ import com.example.dacs3.ui.component.AppTopBar
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 
+// Bảng màu đồng bộ từ RegisterScreen
+private val GreenDeep = Color(0xFF3C7363)
+private val GreenMedium = Color(0xFF84D9BA)
+private val LightBlueBg = Color(0xFFE8F1FD)
+private val TextBlack = Color(0xFF121212)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RandomScreen(
@@ -40,7 +46,6 @@ fun RandomScreen(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
-    // Danh sách chủ đề khớp với Admin Panel
     val topics = listOf("Lịch Sử", "Khoa học", "Văn Hóa")
     val currentUserId = "user_test_01"
 
@@ -58,7 +63,6 @@ fun RandomScreen(
         label = "rotation"
     )
 
-    // Kiểm tra bài này đã được người dùng lưu chưa
     fun checkIsSaved(originId: String) {
         db.collection("users")
             .document(currentUserId)
@@ -92,7 +96,6 @@ fun RandomScreen(
             .get()
             .addOnSuccessListener { docs ->
                 if (!docs.isEmpty) {
-                    // Tránh lấy trùng bài vừa xem
                     val filteredDocs = docs.documents.filter { it.id != lastDocId }
                     val selected = if (filteredDocs.isNotEmpty()) filteredDocs.random() else docs.documents.random()
                     randomDocument = selected
@@ -147,7 +150,7 @@ fun RandomScreen(
     Scaffold(
         topBar = { AppTopBar(streakDays = 12) },
         bottomBar = { AppBottomBar(navController = navController) },
-        containerColor = Color(0xFFF8FAFC)
+        containerColor = Color.White // Đồng bộ với nền Register
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             if (randomDocument == null) {
@@ -159,7 +162,7 @@ fun RandomScreen(
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusChip(icon = Icons.Default.LocalFireDepartment, text = "12 Day Streak", color = Color(0xFFFF5722))
-                        StatusChip(icon = Icons.AutoMirrored.Filled.MenuBook, text = currentTopicName, color = Color(0xFF4A90E2))
+                        StatusChip(icon = Icons.AutoMirrored.Filled.MenuBook, text = currentTopicName, color = GreenDeep)
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -182,8 +185,8 @@ fun RandomScreen(
                         ActionButton(
                             text = if (isSaved) "Đã lưu" else "Lưu thẻ",
                             icon = if (isSaved) Icons.Default.Bookmark else Icons.Outlined.StarBorder,
-                            containerColor = if (isSaved) Color(0xFFE8F5E9) else Color(0xFFFFF9C4),
-                            contentColor = if (isSaved) Color(0xFF4CAF50) else Color(0xFFFBC02D),
+                            containerColor = if (isSaved) Color(0xFFE8F5E9) else LightBlueBg,
+                            contentColor = if (isSaved) Color(0xFF4CAF50) else GreenDeep,
                             modifier = Modifier.weight(1f),
                             onClick = { if (isSaved) unSaveKnowledge() else saveKnowledge() }
                         )
@@ -191,12 +194,12 @@ fun RandomScreen(
                         Button(
                             onClick = { pickRandomFromSubCollection() },
                             modifier = Modifier.weight(1f).height(50.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A90E2)),
+                            colors = ButtonDefaults.buttonColors(containerColor = GreenDeep), // Đồng bộ màu nút chính
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Tiếp theo", fontWeight = FontWeight.Bold)
+                            Text("TIẾP THEO", fontWeight = FontWeight.Black)
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -223,12 +226,11 @@ fun FlashcardView(
             .fillMaxHeight(0.9f)
             .graphicsLayer { rotationY = rotation; cameraDistance = 12f * density }
             .clickable { onFlip() }
-            .shadow(25.dp, RoundedCornerShape(32.dp))
+            .shadow(20.dp, RoundedCornerShape(32.dp))
             .background(Color.White, RoundedCornerShape(32.dp)),
         contentAlignment = Alignment.Center
     ) {
         if (rotation <= 90f) {
-            // --- MẶT TRƯỚC ---
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(24.dp).fillMaxSize()
@@ -236,7 +238,7 @@ fun FlashcardView(
                 Text(
                     text = topic.uppercase(),
                     fontSize = 13.sp,
-                    color = Color(0xFF4A90E2),
+                    color = GreenDeep,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 2.sp
                 )
@@ -246,8 +248,8 @@ fun FlashcardView(
                 Text(
                     text = title,
                     fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF1E293B),
+                    fontWeight = FontWeight.Black, // Chuyển sang Black giống tiêu đề Register
+                    color = TextBlack,
                     textAlign = TextAlign.Center,
                     lineHeight = 36.sp
                 )
@@ -258,13 +260,13 @@ fun FlashcardView(
                     text = content,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF64748B),
+                    color = Color.Gray,
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                Icon(Icons.Default.TouchApp, contentDescription = null, tint = Color.LightGray)
+                Icon(Icons.Default.TouchApp, contentDescription = null, tint = GreenMedium)
                 Text("Chạm để xem giải thích", fontSize = 12.sp, color = Color.Gray)
             }
 
@@ -277,7 +279,6 @@ fun FlashcardView(
                 )
             }
         } else {
-            // --- MẶT SAU ---
             Column(
                 modifier = Modifier
                     .graphicsLayer { rotationY = 180f }
@@ -287,13 +288,13 @@ fun FlashcardView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("GIẢI THÍCH CHI TIẾT", fontSize = 14.sp, color = Color(0xFF4A90E2), fontWeight = FontWeight.Bold)
+                Text("GIẢI THÍCH CHI TIẾT", fontSize = 14.sp, color = GreenDeep, fontWeight = FontWeight.Black)
                 Spacer(modifier = Modifier.height(20.dp))
                 Text(
                     text = detail,
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center,
-                    color = Color(0xFF334155),
+                    color = TextBlack,
                     lineHeight = 30.sp
                 )
             }
@@ -311,35 +312,36 @@ fun NewInitialView(isLoading: Boolean, onBack: () -> Unit, onRandom: () -> Unit)
     )
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().background(Color.White),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.Start).padding(16.dp)) {
-            Icon(Icons.Default.ArrowBack, contentDescription = null)
+            Icon(Icons.Default.ArrowBack, contentDescription = null, tint = GreenDeep)
         }
         Spacer(modifier = Modifier.weight(1f))
         Box(contentAlignment = Alignment.Center) {
-            Box(modifier = Modifier.size(180.dp).scale(scale).background(Color(0xFFE3F2FD), CircleShape))
+            Box(modifier = Modifier.size(180.dp).scale(scale).background(LightBlueBg, CircleShape))
             Surface(modifier = Modifier.size(120.dp).shadow(15.dp, CircleShape), color = Color.White, shape = CircleShape) {
-                Icon(Icons.Default.Redeem, contentDescription = null, modifier = Modifier.padding(30.dp).fillMaxSize(), tint = Color(0xFF4A90E2))
+                Icon(Icons.Default.Redeem, contentDescription = null, modifier = Modifier.padding(30.dp).fillMaxSize(), tint = GreenDeep)
             }
         }
         Spacer(modifier = Modifier.height(40.dp))
-        Text("Kiến thức bí ẩn", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-        Text("Khám phá ngay điều mới lạ", color = Color.Gray, fontSize = 14.sp)
+        Text("Kiến thức bí ẩn", fontSize = 26.sp, color = TextBlack, fontWeight = FontWeight.Black)
+        Text("Khám phá ngay điều mới lạ cùng MindSnack", color = Color.Gray, fontSize = 15.sp, textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(60.dp))
 
         if (isLoading) {
-            CircularProgressIndicator(color = Color(0xFF4A90E2))
+            CircularProgressIndicator(color = GreenDeep)
         } else {
             Button(
                 onClick = onRandom,
-                modifier = Modifier.fillMaxWidth(0.7f).height(60.dp).shadow(10.dp, RoundedCornerShape(20.dp)),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A90E2)),
-                shape = RoundedCornerShape(20.dp)
+                modifier = Modifier.fillMaxWidth(0.7f).height(60.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GreenDeep),
+                shape = RoundedCornerShape(12.dp), // Đồng bộ bo góc 12dp
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
             ) {
-                Text("MỞ QUÀ NGẪU NHIÊN", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                Text("MỞ QUÀ NGẪU NHIÊN", fontSize = 16.sp, fontWeight = FontWeight.Black)
             }
         }
         Spacer(modifier = Modifier.weight(1.2f))
@@ -352,16 +354,21 @@ fun StatusChip(icon: androidx.compose.ui.graphics.vector.ImageVector, text: Stri
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(4.dp))
-            Text(text, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+            Text(text, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextBlack)
         }
     }
 }
 
 @Composable
 fun ActionButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, containerColor: Color, contentColor: Color, modifier: Modifier, onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = modifier.height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor), shape = RoundedCornerShape(12.dp)) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(50.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor),
+        shape = RoundedCornerShape(12.dp)
+    ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(text, fontWeight = FontWeight.Black, fontSize = 14.sp)
     }
 }

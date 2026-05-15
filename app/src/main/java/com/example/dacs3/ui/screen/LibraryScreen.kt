@@ -21,7 +21,13 @@ import com.example.dacs3.ui.component.AppBottomBar
 import com.example.dacs3.ui.component.AppTopBar
 import com.google.firebase.firestore.FirebaseFirestore
 
-// 1. Định nghĩa Data Model cho Firestore
+
+private val GreenDeep = Color(0xFF3C7363)
+private val GreenMedium = Color(0xFF84D9BA)
+private val LightBlueBg = Color(0xFFE8F1FD)
+private val TextBlack = Color(0xFF121212)
+
+
 data class SavedKnowledge(
     val id: String = "",
     val content: String = "",
@@ -29,7 +35,7 @@ data class SavedKnowledge(
     val detail: String = ""
 )
 
-// 2. Định nghĩa Data Model cho Categories (Sửa lỗi Unresolved reference CategoryItem)
+
 data class CategoryItem(
     val title: String,
     val subtitle: String,
@@ -42,7 +48,7 @@ fun LibraryScreen(navController: NavController) {
     var search by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
 
-    // State lưu danh sách dữ liệu
+
     var savedList by remember { mutableStateOf<List<SavedKnowledge>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -52,7 +58,7 @@ fun LibraryScreen(navController: NavController) {
             .document("user_test_01")
             .collection("saved_knowledge")
             .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ -> // Sử dụng _ thay cho e để tránh lỗi Unused parameter
+            .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
                     savedList = snapshot.documents.map { doc ->
                         SavedKnowledge(
@@ -70,7 +76,7 @@ fun LibraryScreen(navController: NavController) {
     Scaffold(
         topBar = { AppTopBar(streakDays = 12) },
         bottomBar = { AppBottomBar(navController = navController) },
-        containerColor = Color(0xFFF1F5F9)
+        containerColor = Color.White
     ) { padding ->
         Column(
             modifier = Modifier
@@ -80,29 +86,32 @@ fun LibraryScreen(navController: NavController) {
         ) {
             Spacer(modifier = Modifier.height(15.dp))
 
+
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Tìm kiếm kiến thức...") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                shape = RoundedCornerShape(20.dp),
+                placeholder = { Text("Tìm kiếm kiến thức...", fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Outlined.Search, null, tint = GreenDeep) },
+                shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = Color.White,
+                    unfocusedContainerColor = LightBlueBg,
                     focusedContainerColor = Color.White,
                     unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color(0xFF00ADEF)
+                    focusedBorderColor = GreenDeep,
+                    focusedTextColor = TextBlack,
+                    unfocusedTextColor = TextBlack
                 )
             )
 
             Spacer(modifier = Modifier.height(25.dp))
 
-            Text("Chuyên mục", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Chuyên mục", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextBlack)
             Spacer(modifier = Modifier.height(15.dp))
 
-            // Thiết lập danh sách Category dựa trên dữ liệu thật
+
             val categories = listOf(
-                CategoryItem("Lịch Sử", "${savedList.count { it.topic == "Lịch Sử" }} thẻ", Icons.Default.History, Color(0xFFE0F2FE)),
+                CategoryItem("Lịch Sử", "${savedList.count { it.topic == "Lịch Sử" }} thẻ", Icons.Default.History, LightBlueBg),
                 CategoryItem("Khoa học", "${savedList.count { it.topic == "Khoa học" }} thẻ", Icons.Default.Science, Color(0xFFF0FDF4)),
                 CategoryItem("Code Tips", "0 snippets", Icons.Default.Code, Color(0xFFFFF7ED)),
                 CategoryItem("Khác", "${savedList.count { it.topic != "Lịch Sử" && it.topic != "Khoa học" }} thẻ", Icons.Default.MoreHoriz, Color(0xFFEFF6FF))
@@ -123,22 +132,21 @@ fun LibraryScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(30.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("Kiến thức đã lưu", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Tất cả (${savedList.size})", color = Color(0xFF00ADEF), fontWeight = FontWeight.SemiBold)
+                Text("Kiến thức đã lưu", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextBlack)
+                Text("Tất cả (${savedList.size})", color = GreenDeep, fontWeight = FontWeight.Black, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(15.dp))
 
             if (isLoading) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF00ADEF))
+                    CircularProgressIndicator(color = GreenDeep)
                 }
             } else {
                 val filteredList = savedList.filter {
                     it.content.contains(search, ignoreCase = true) || it.topic.contains(search, ignoreCase = true)
                 }
 
-                // Sửa lỗi infer type bằng cách chỉ định rõ kiểu dữ liệu trong items
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
@@ -155,21 +163,20 @@ fun LibraryScreen(navController: NavController) {
     }
 }
 
-// 3. Định nghĩa các Component bổ trợ (Sửa lỗi Unresolved reference CategoryCard & SavedSnackItem)
-
 @Composable
 fun CategoryCard(item: CategoryItem, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.height(160.dp),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = item.bgColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp).fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            Surface(modifier = Modifier.size(45.dp), shape = RoundedCornerShape(12.dp), color = item.bgColor) {
-                Icon(item.icon, null, modifier = Modifier.padding(10.dp), tint = Color(0xFF1E293B))
+            Surface(modifier = Modifier.size(45.dp), shape = RoundedCornerShape(12.dp), color = Color.White) {
+                Icon(item.icon, null, modifier = Modifier.padding(10.dp), tint = GreenDeep)
             }
             Spacer(modifier = Modifier.height(15.dp))
-            Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(item.title, fontWeight = FontWeight.Black, fontSize = 16.sp, color = TextBlack)
             Text(item.subtitle, fontSize = 13.sp, color = Color.Gray)
         }
     }
@@ -179,19 +186,20 @@ fun CategoryCard(item: CategoryItem, modifier: Modifier = Modifier) {
 fun SavedSnackItem(title: String, subtitle: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(modifier = Modifier.size(50.dp), shape = RoundedCornerShape(12.dp), color = Color(0xFFF1F5F9)) {
-                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.padding(12.dp), tint = Color(0xFF00ADEF))
+            Surface(modifier = Modifier.size(50.dp), shape = RoundedCornerShape(12.dp), color = LightBlueBg) {
+                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.padding(12.dp), tint = GreenDeep)
             }
             Spacer(modifier = Modifier.width(15.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                Text(title, fontWeight = FontWeight.Black, fontSize = 15.sp, maxLines = 1, color = TextBlack)
                 Text(subtitle, fontSize = 13.sp, color = Color.Gray)
             }
-            Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+            Icon(Icons.Default.ChevronRight, null, tint = GreenMedium)
         }
     }
 }

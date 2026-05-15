@@ -2,11 +2,7 @@ package com.example.dacs3.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.*
-import com.example.dacs3.ui.screen.GoalsScreen
-import com.example.dacs3.ui.screen.HomeScreen
-import com.example.dacs3.ui.screen.RandomScreen
-import com.example.dacs3.ui.screen.LibraryScreen
-import com.example.dacs3.ui.screen.ProfileScreen
+import com.example.dacs3.ui.screen.* // Đảm bảo import đúng LoginScreen và RegisterScreen
 
 @Composable
 fun AppNavGraph() {
@@ -14,8 +10,43 @@ fun AppNavGraph() {
 
     NavHost(
         navController = navController,
-        startDestination = "home"
+        startDestination = "library"
     ) {
+
+
+        // Màn hình Đăng nhập
+        composable("login") {
+            LoginScreen(
+                onLoginClick = { email, password ->
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                onRegisterClick = {
+                    navController.navigate("register")
+                },
+                onGoogleLogin = { /* Xử lý */ }
+            )
+        }
+
+        // Màn hình Đăng ký
+        composable("register") {
+            RegisterScreen(
+                onLoginClick = {
+                    navController.popBackStack()
+                },
+                onRegisterClick = { user, email, name, pass ->
+                    // Sau khi tạo tài khoản thành công, có thể cho vào Home luôn
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                onGoogleLogin = { /* Xử lý */ }
+            )
+        }
+
+        // --- CÁC MÀN HÌNH CHÍNH CỦA APP ---
+
         // Màn hình chính
         composable("home") {
             HomeScreen(
@@ -32,12 +63,10 @@ fun AppNavGraph() {
         // Màn hình Ngẫu nhiên (Xúc xắc)
         composable("random") {
             RandomScreen(
-                // Chỉ định rõ kiểu String cho id để tránh lỗi inference
                 onResultClick = { id: String ->
                     navController.navigate("detail/$id")
                 },
                 onBack = { navController.popBackStack() },
-                // Bổ sung tham số navController còn thiếu
                 navController = navController
             )
         }
