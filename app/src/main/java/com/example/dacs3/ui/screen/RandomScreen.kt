@@ -112,18 +112,31 @@ fun RandomScreen(
         }
     }
 
-    // Đồng bộ tương tác (Vừa đánh dấu đã xem, vừa kiểm tra đã lưu chưa)
     fun syncUserInteraction(originId: String, topic: String, title: String) {
-        val docRef = db.collection("users")
-            .document(currentUserId)
-            .collection("interactions")
-            .document(originId)
+        val userRef = db.collection("users").document(currentUserId)
+        val interactionRef = userRef.collection("interactions").document(originId)
 
-        docRef.get().addOnSuccessListener { snapshot ->
+        interactionRef.get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
+                // --- TRƯỜNG HỢP 1: THẺ ĐÃ TỒN TẠI (THẺ CŨ) ---
+                // Cập nhật trạng thái hiển thị nút lưu
                 isSaved = snapshot.getBoolean("is_saved") ?: false
-                docRef.update("timestamp", com.google.firebase.Timestamp.now())
+
+                // Chỉ khi thẻ đã tồn tại mới ghi nhật ký vào history_logs
+                val logData = hashMapOf(
+                    "origin_id" to originId,
+                    "topic" to topic,
+                    "title" to title,
+                    "action" to "view",
+                    "timestamp" to com.google.firebase.Timestamp.now()
+                )
+                userRef.collection("history_logs").add(logData)
+                    .addOnSuccessListener {
+                        android.util.Log.d("Firestore", "Thẻ cũ - Đã thêm vào history_logs: $originId")
+                    }
             } else {
+                // --- TRƯỜNG HỢP 2: THẺ MỚI HOÀN TOÀN ---
+                // Chỉ lưu vào interactions, KHÔNG lưu vào history_logs
                 val interactionData = hashMapOf(
                     "origin_id" to originId,
                     "topic" to topic,
@@ -132,11 +145,10 @@ fun RandomScreen(
                     "is_saved" to false,
                     "timestamp" to com.google.firebase.Timestamp.now()
                 )
-                docRef.set(interactionData)
+                interactionRef.set(interactionData)
                 isSaved = false
+                android.util.Log.d("Firestore", "Thẻ mới - Đã lưu vào interactions: $originId")
             }
-        }.addOnFailureListener {
-            isSaved = false
         }
     }
 

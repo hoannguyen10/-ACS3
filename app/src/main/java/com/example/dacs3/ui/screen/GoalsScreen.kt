@@ -1,9 +1,10 @@
 package com.example.dacs3.ui.screen
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -23,67 +24,51 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.dacs3.ui.component.AppBottomBar
-import com.example.dacs3.ui.component.AppTopBar
+import com.example.dacs3.model.LevelStep
+import com.example.dacs3.ui.component.*
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import java.text.SimpleDateFormat
+import java.util.*
 
-// --- MÀU SẮC GỐC ---
+// --- MÀU SẮC CHỦ ĐẠO ---
 private val GreenDeep = Color(0xFF3C7363)
-private val GreenMedium = Color(0xFF84D9BA)
+private val GoldColor = Color(0xFFF59E0B)
 private val LightBlueBg = Color(0xFFE8F1FD)
 private val TextBlack = Color(0xFF121212)
-private val GoldColor = Color(0xFFFFC107)
-private val LockedGray = Color(0xFFD1D5DB)
+private val LockedGray = Color(0xFFE5E7EB)
 
+// --- DATA MODELS NỘI BỘ ---
 data class RankUser(val rank: Int, val name: String, val xp: Int, val isCurrentUser: Boolean = false)
-
-// --- DATA CLASS CHO BẢN ĐỒ CẤP ĐỘ ---
-data class LevelStep(
-    val id: Int,
-    val title: String,
-    val description: String,
-    val xpRequired: Int,
-    val icon: ImageVector
-)
+data class DayStat(val dayLabel: String, val lessonCount: Int, val quizCount: Int)
 
 @Composable
 fun GoalsScreen(navController: NavController) {
     val db = FirebaseFirestore.getInstance()
-    val currentUserId = "user_test_01"
+    val currentUserId = "user_test_01" // Nên lấy từ Firebase Auth thực tế
 
-    // Các state gốc của bạn
     var streakDays by remember { mutableIntStateOf(0) }
     var userTotalExp by remember { mutableIntStateOf(0) }
 
-    // State cho bộ lọc thời gian (giữ nguyên gốc)
-    val timeFilters = listOf("Tất cả", "1 tháng", "1 tuần", "3 ngày", "1 ngày")
-    var selectedTimeFilter by remember { mutableStateOf(timeFilters[0]) }
+    var rawHistoryLogs by remember { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
+    var rawLessons by remember { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
+    var rawQuizzes by remember { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
 
-    // State điều khiển hiển thị bản đồ cấp độ
+    var weeklyStats by remember { mutableStateOf<List<DayStat>>(emptyList()) }
+    var isLoadingStats by remember { mutableStateOf(true) }
+
     var showLevelMap by remember { mutableStateOf(false) }
     var selectedLevelInfo by remember { mutableStateOf<LevelStep?>(null) }
 
-    // Danh sách cấp độ
-    val levelPath = listOf(
-        LevelStep(1, "Tân Thủ", "Chào mừng bạn! Đây là bước đầu tiên trong hành trình.", 0, Icons.Default.ChildCare),
-        LevelStep(2, "Tập Sự", "Bạn bắt đầu quen với các bài học cơ bản.", 50, Icons.Default.MenuBook),
-        LevelStep(3, "Kiên Trì", "Hộp quà tri thức đang chờ đón bạn.", 150, Icons.Default.Inventory2),
-        LevelStep(4, "Thông Thái", "Kỹ năng của bạn đã được cải thiện đáng kể.", 350, Icons.Default.Psychology),
-        LevelStep(5, "Bậc Thầy", "Bạn là một người học xuất sắc!", 700, Icons.Default.Stars)
-    )
+    // Sử dụng dữ liệu tập trung đã tách
+    val levelPath = LevelPathData
+    val fullDateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val dayLabelFormat = remember { SimpleDateFormat("EE", Locale("vi", "VN")) }
 
-    // Dữ liệu Leaderboard gốc (cập nhật điểm của bạn bằng userTotalExp)
-    val mockLeaderboard = listOf(
-        RankUser(1, "Hải Nam", 5420),
-        RankUser(2, "Minh Anh", 4300),
-        RankUser(3, "Bạn (user_test)", userTotalExp, isCurrentUser = true),
-        RankUser(4, "Thảo Vy", 2900)
-    ).sortedByDescending { it.xp }
-    val yourRank = mockLeaderboard.indexOfFirst { it.isCurrentUser } + 1
-
+    // 1. Lắng nghe dữ liệu người dùng
     LaunchedEffect(Unit) {
-        val userRef = db.collection("users").document(currentUserId)
-        userRef.addSnapshotListener { snapshot, _ ->
+        db.collection("users").document(currentUserId).addSnapshotListener { snapshot, _ ->
             if (snapshot != null && snapshot.exists()) {
                 streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
                 userTotalExp = (snapshot.getLong("total_exp") ?: 0L).toInt()
@@ -91,12 +76,67 @@ fun GoalsScreen(navController: NavController) {
         }
     }
 
+    // 2. Truy vấn dữ liệu hoạt động trong 7 ngày
+    LaunchedEffect(Unit) {
+        val calendar = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6) }
+        val startTime = Timestamp(calendar.time)
+
+        // Lấy bài học mới
+        db.collection("users").document(currentUserId).collection("interactions")
+            .whereGreaterThanOrEqualTo("timestamp", startTime)
+            .addSnapshotListener { s, _ -> rawLessons = s?.documents ?: emptyList() }
+
+        // Lấy lịch sử xem lại
+        db.collection("users").document(currentUserId).collection("history_logs")
+            .whereGreaterThanOrEqualTo("timestamp", startTime)
+            .addSnapshotListener { s, _ -> rawHistoryLogs = s?.documents ?: emptyList() }
+
+        // Lấy lịch sử Quiz
+        db.collection("users").document(currentUserId).collection("quizz_question_history")
+            .whereGreaterThanOrEqualTo("timestamp", startTime)
+            .addSnapshotListener { s, _ -> rawQuizzes = s?.documents ?: emptyList() }
+    }
+
+    // 3. Xử lý dữ liệu biểu đồ
+    LaunchedEffect(rawLessons, rawHistoryLogs, rawQuizzes) {
+        val lessonMap = mutableMapOf<String, Int>()
+        val quizMap = mutableMapOf<String, Int>()
+
+        for (i in 0..6) {
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -i) }
+            val key = fullDateFormat.format(cal.time)
+            lessonMap[key] = 0
+            quizMap[key] = 0
+        }
+
+        (rawLessons + rawHistoryLogs).forEach { doc ->
+            doc.getTimestamp("timestamp")?.let { ts ->
+                val key = fullDateFormat.format(ts.toDate())
+                if (lessonMap.containsKey(key)) lessonMap[key] = lessonMap[key]!! + 1
+            }
+        }
+
+        rawQuizzes.forEach { doc ->
+            doc.getTimestamp("timestamp")?.let { ts ->
+                val key = fullDateFormat.format(ts.toDate())
+                if (quizMap.containsKey(key)) quizMap[key] = quizMap[key]!! + 1
+            }
+        }
+
+        weeklyStats = lessonMap.keys.sorted().map { key ->
+            val date = fullDateFormat.parse(key)
+            DayStat(
+                dayLabel = dayLabelFormat.format(date!!).uppercase(),
+                lessonCount = lessonMap[key] ?: 0,
+                quizCount = quizMap[key] ?: 0
+            )
+        }
+        isLoadingStats = false
+    }
+
     val currentLevelNum = levelPath.lastOrNull { userTotalExp >= it.xpRequired }?.id ?: 1
 
-    // Box to lớn nhất để chứa Scaffold (nền) và Level Map (lớp phủ)
     Box(modifier = Modifier.fillMaxSize()) {
-
-        // --- 1. GIAO DIỆN GỐC CỦA BẠN (ĐƯỢC GIỮ NGUYÊN 100%) ---
         Scaffold(
             topBar = { AppTopBar(streakDays = streakDays) },
             bottomBar = { AppBottomBar(navController = navController) },
@@ -111,39 +151,10 @@ fun GoalsScreen(navController: NavController) {
             ) {
                 Spacer(modifier = Modifier.height(15.dp))
 
-                // --- BẢNG XẾP HẠNG THU NHỎ ---
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = LightBlueBg)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Bảng xếp hạng tuần", color = GreenDeep.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                Text("Hạng của bạn: $yourRank", fontWeight = FontWeight.Black, fontSize = 20.sp, color = TextBlack)
-                            }
-                            Surface(modifier = Modifier.size(45.dp), shape = RoundedCornerShape(12.dp), color = Color.White) {
-                                Icon(Icons.Default.EmojiEvents, null, modifier = Modifier.padding(10.dp), tint = Color(0xFFF59E0B))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(15.dp))
-
-
-                        mockLeaderboard.take(4).forEachIndexed { index, user ->
-                            RankItemCard(user.copy(rank = index + 1))
-                        }
-                    }
-                }
+                RankPreviewCard(userTotalExp)
 
                 Spacer(modifier = Modifier.height(25.dp))
 
-                // --- 2 THẺ THÔNG SỐ ---
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                     AchievementStatCard(
                         label = "Chuỗi ngày", value = "$streakDays ngày",
@@ -152,59 +163,43 @@ fun GoalsScreen(navController: NavController) {
                     )
                     AchievementStatCard(
                         label = "Cấp bậc", value = "Cấp $currentLevelNum",
-                        icon = Icons.Default.Stars, color = Color(0xFFF59E0B),
-                        // THÊM SỰ KIỆN CLICK VÀO ĐÂY ĐỂ MỞ BẢN ĐỒ CẤP ĐỘ
+                        icon = Icons.Default.Stars, color = GoldColor,
                         modifier = Modifier.weight(1f).clickable { showLevelMap = true }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(30.dp))
 
-                // --- THỐNG KÊ HỌC TẬP (Giữ nguyên gốc) ---
-                Text("Thống kê học tập", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextBlack)
+                Text("Tiến độ học tập", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextBlack)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(8.dp).background(GreenDeep, CircleShape))
+                    Text(" Bài học", fontSize = 11.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(modifier = Modifier.size(8.dp).background(GoldColor, CircleShape))
+                    Text(" Quiz", fontSize = 11.sp, color = Color.Gray)
+                }
+
                 Spacer(modifier = Modifier.height(15.dp))
 
-                // Bộ lọc thời gian (Giữ nguyên cấu trúc gốc)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = LightBlueBg.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, Color(0xFFF1F5F9))
                 ) {
-                    timeFilters.forEach { filter ->
-                        val isSelected = selectedTimeFilter == filter
-                        Surface(
-                            modifier = Modifier.clickable { selectedTimeFilter = filter },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isSelected) GreenDeep else Color.White,
-                            border = BorderStroke(1.dp, if (isSelected) GreenDeep else Color.LightGray)
-                        ) {
-                            Text(
-                                text = filter,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                color = if (isSelected) Color.White else Color.Gray,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        if (isLoadingStats) {
+                            Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = GreenDeep)
+                            }
+                        } else {
+                            StackedWeeklyChart(stats = weeklyStats)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(15.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-                    LearningStatBox("Từ vựng", "1,250", "từ", Icons.Default.Translate, Modifier.weight(1f))
-                    LearningStatBox("Thời gian", "15", "giờ", Icons.Default.AccessTime, Modifier.weight(1f))
-                }
-
-                // Hàng 2 (2 ô sau - Bạn có thể sửa tên/icon tùy ý)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-                    LearningStatBox("Bài học", "48", "bài", Icons.Default.MenuBook, Modifier.weight(1f))
-                    LearningStatBox("Độ chính xác", "92", "%", Icons.Default.FactCheck, Modifier.weight(1f))
-                }
-
                 Spacer(modifier = Modifier.height(30.dp))
 
-                // --- HUY HIỆU NỔI BẬT (Giữ nguyên gốc) ---
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Huy hiệu nổi bật", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextBlack)
                     Text("Xem tất cả", color = GreenDeep, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { })
@@ -221,137 +216,98 @@ fun GoalsScreen(navController: NavController) {
             }
         }
 
-        // --- 2. LỚP PHỦ BẢN ĐỒ CẤP ĐỘ ZIGZAG (CHỈ HIỆN KHI BẤM VÀO CẤP BẬC) ---
+        // Overlay lộ trình (đã tách)
         if (showLevelMap) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color.White // Che kín toàn màn hình
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Header có nút Back
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { showLevelMap = false }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Quay lại", tint = GreenDeep)
-                        }
-                        Text("Lộ trình học tập", fontWeight = FontWeight.Black, fontSize = 20.sp, color = TextBlack)
-                    }
-
-                    // Vùng cuộn chứa bản đồ Zigzag
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = 20.dp, bottom = 80.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        levelPath.forEachIndexed { index, level ->
-                            val isUnlocked = userTotalExp >= level.xpRequired
-                            val isNext = !isUnlocked && (index == 0 || userTotalExp >= levelPath[index - 1].xpRequired)
-
-                            // Tạo độ lệch Zigzag: Cấp 1 trái, Cấp 2 phải, Cấp 3 trái...
-                            val xOffset = when {
-                                index % 4 == 1 -> (-80).dp // Lệch trái
-                                index % 4 == 3 -> (80).dp  // Lệch phải
-                                else -> 0.dp               // Ở giữa
-                            }
-
-                            LevelNode(
-                                level = level,
-                                isUnlocked = isUnlocked,
-                                isNext = isNext,
-                                modifier = Modifier
-                                    .offset(x = xOffset)
-                                    .padding(vertical = 20.dp),
-                                onClick = { selectedLevelInfo = level }
-                            )
-                        }
-                    }
-                }
-            }
+            LevelRoadmapOverlay(
+                streakDays = streakDays,
+                userTotalExp = userTotalExp,
+                levelPath = levelPath,
+                onBack = { showLevelMap = false },
+                onSelect = { selectedLevelInfo = it }
+            )
         }
     }
 
-    // --- DIALOG GIẢI THÍCH KHI BẤM VÀO TỪNG CẤP ĐỘ ---
+    // Dialog chi tiết (đã tách)
     if (selectedLevelInfo != null) {
-        val isUnlocked = userTotalExp >= selectedLevelInfo!!.xpRequired
-        AlertDialog(
-            onDismissRequest = { selectedLevelInfo = null },
-            title = { Text(selectedLevelInfo!!.title, fontWeight = FontWeight.Black, color = GreenDeep) },
-            text = {
-                Column {
-                    Text(selectedLevelInfo!!.description, fontSize = 15.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "Yêu cầu: ${selectedLevelInfo!!.xpRequired} EXP",
-                        fontWeight = FontWeight.Bold,
-                        color = if (isUnlocked) GreenDeep else Color.Red
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedLevelInfo = null }) { Text("Đóng", fontWeight = FontWeight.Bold, color = GreenDeep) }
-            },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = Color.White
-        )
+        LevelDetailDialog(selectedLevelInfo!!, userTotalExp) { selectedLevelInfo = null }
     }
 }
 
-// --- HÀM VẼ TỪNG NÚT CẤP ĐỘ ZIGZAG ---
-@Composable
-fun LevelNode(level: LevelStep, isUnlocked: Boolean, isNext: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        if (isNext) {
-            Surface(color = GreenDeep, shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                Text("BẮT ĐẦU", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-            }
-        }
-        Surface(
-            modifier = Modifier.size(85.dp).clickable { onClick() },
-            shape = CircleShape,
-            color = if (isUnlocked) GreenMedium else Color.White,
-            border = BorderStroke(4.dp, if (isUnlocked) GreenDeep else if (isNext) GreenDeep.copy(0.5f) else LockedGray),
-            shadowElevation = if (isUnlocked) 6.dp else 0.dp
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    level.icon, null,
-                    modifier = Modifier.size(35.dp),
-                    tint = if (isUnlocked) Color.White else LockedGray
-                )
-            }
-        }
-    }
-}
+// --- CÁC COMPONENT HỖ TRỢ TRONG MÀN HÌNH ---
 
 @Composable
-fun AchievementStatCard(label: String, value: String, icon: ImageVector, color: Color, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier
-            .heightIn(min = 130.dp) // Dùng heightIn để thẻ có thể tự co giãn nếu chữ lớn
-            .wrapContentHeight(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF1F5F9)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+fun StackedWeeklyChart(stats: List<DayStat>) {
+    val maxVal = stats.maxOfOrNull { it.lessonCount + it.quizCount }?.coerceAtLeast(1) ?: 1
+
+    Row(
+        modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.Bottom
     ) {
-        Column(
-            modifier = Modifier
-                .padding(vertical = 12.dp, horizontal = 8.dp) // Thu nhỏ padding để có thêm khoảng trống
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = color.copy(alpha = 0.1f)) {
-                Icon(icon, null, tint = color, modifier = Modifier.padding(8.dp)) // Thu nhỏ icon một chút xíu
+        stats.forEach { stat ->
+            val total = stat.lessonCount + stat.quizCount
+            val barHeightPercent = total.toFloat() / maxVal
+            val animatedHeight by animateFloatAsState(targetValue = barHeightPercent, animationSpec = tween(1000))
+
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                if (total > 0) {
+                    Text(text = total.toString(), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+                    if (total > 0) {
+                        Column(
+                            modifier = Modifier.fillMaxHeight(animatedHeight.coerceAtLeast(0.05f)).width(24.dp)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                        ) {
+                            if (stat.quizCount > 0) {
+                                Box(modifier = Modifier.weight(stat.quizCount.toFloat()).fillMaxWidth().background(GoldColor), contentAlignment = Alignment.TopCenter) {
+                                    Text(text = stat.quizCount.toString(), fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (stat.lessonCount > 0) {
+                                Box(modifier = Modifier.weight(stat.lessonCount.toFloat()).fillMaxWidth().background(GreenDeep), contentAlignment = Alignment.TopCenter) {
+                                    Text(text = stat.lessonCount.toString(), fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        Box(modifier = Modifier.height(6.dp).width(24.dp).background(LockedGray, CircleShape))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                val isToday = stat.dayLabel == SimpleDateFormat("EE", Locale("vi", "VN")).format(Date()).uppercase()
+                Text(text = stat.dayLabel, fontSize = 11.sp, color = if (isToday) GreenDeep else Color.Gray, fontWeight = if (isToday) FontWeight.Black else FontWeight.Medium)
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(label, fontSize = 13.sp, color = Color.Gray, fontWeight = FontWeight.Medium, maxLines = 1)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(value, fontWeight = FontWeight.Black, fontSize = 15.sp, textAlign = TextAlign.Center, color = TextBlack, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun RankPreviewCard(userTotalExp: Int) {
+    val mockLeaderboard = listOf(
+        RankUser(1, "Hải Nam", 5420),
+        RankUser(2, "Minh Anh", 4300),
+        RankUser(3, "Bạn", userTotalExp, isCurrentUser = true),
+        RankUser(4, "Thảo Vy", 2900)
+    ).sortedByDescending { it.xp }
+
+    val yourRank = mockLeaderboard.indexOfFirst { it.isCurrentUser } + 1
+
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = LightBlueBg)) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Bảng xếp hạng tuần", color = GreenDeep.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("Hạng của bạn: $yourRank", fontWeight = FontWeight.Black, fontSize = 20.sp, color = TextBlack)
+                }
+                Surface(modifier = Modifier.size(45.dp), shape = RoundedCornerShape(12.dp), color = Color.White) {
+                    Icon(Icons.Default.EmojiEvents, null, modifier = Modifier.padding(10.dp), tint = GoldColor)
+                }
+            }
+            Spacer(modifier = Modifier.height(15.dp))
+            mockLeaderboard.take(4).forEachIndexed { index, user -> RankItemCard(user.copy(rank = index + 1)) }
         }
     }
 }
@@ -360,23 +316,9 @@ fun AchievementStatCard(label: String, value: String, icon: ImageVector, color: 
 fun RankItemCard(user: RankUser) {
     val bgColor = if (user.isCurrentUser) Color.White else Color.Transparent
     val textColor = if (user.isCurrentUser) GreenDeep else TextBlack
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
-            .padding(vertical = 10.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(bgColor).padding(vertical = 8.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "#${user.rank}",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = if (user.rank in 1..3) Color(0xFFF59E0B) else Color.Gray,
-                modifier = Modifier.width(30.dp)
-            )
+            Text("#${user.rank}", fontWeight = FontWeight.Bold, color = if (user.rank in 1..3) GoldColor else Color.Gray, modifier = Modifier.width(30.dp))
             Spacer(modifier = Modifier.width(10.dp))
             Text(user.name, fontWeight = if (user.isCurrentUser) FontWeight.Black else FontWeight.Medium, color = textColor)
         }
@@ -385,39 +327,22 @@ fun RankItemCard(user: RankUser) {
 }
 
 @Composable
-fun LearningStatBox(title: String, value: String, unit: String, icon: ImageVector, modifier: Modifier) {
-    Card(
-        modifier = modifier.height(110.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF1F5F9))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = GreenDeep.copy(0.7f), modifier = Modifier.size(20.dp))
-                Text(title, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp), color = Color.Gray)
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(value, fontWeight = FontWeight.Black, fontSize = 24.sp, color = TextBlack)
-                Text(unit, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp, bottom = 3.dp), color = Color.Gray)
-            }
+fun AchievementStatCard(label: String, value: String, icon: ImageVector, color: Color, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.heightIn(min = 100.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFF1F5F9)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Surface(modifier = Modifier.size(36.dp), shape = CircleShape, color = color.copy(alpha = 0.1f)) { Icon(icon, null, tint = color, modifier = Modifier.padding(8.dp)) }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(label, fontSize = 12.sp, color = Color.Gray)
+            Text(value, fontWeight = FontWeight.Black, fontSize = 16.sp, color = TextBlack)
         }
     }
 }
 
 @Composable
 fun BadgeItem(name: String, icon: ImageVector, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(85.dp)) {
-        Surface(
-            modifier = Modifier.size(64.dp),
-            shape = CircleShape,
-            color = color.copy(alpha = 0.15f),
-            border = BorderStroke(2.dp, color.copy(alpha = 0.3f))
-        ) {
-            Icon(icon, null, modifier = Modifier.padding(16.dp), tint = color)
-        }
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(name, fontSize = 12.sp, textAlign = TextAlign.Center, color = TextBlack, fontWeight = FontWeight.Medium)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(80.dp)) {
+        Surface(modifier = Modifier.size(60.dp), shape = CircleShape, color = color.copy(alpha = 0.1f), border = BorderStroke(2.dp, color.copy(alpha = 0.2f))) { Icon(icon, null, modifier = Modifier.padding(16.dp), tint = color) }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(name, fontSize = 11.sp, textAlign = TextAlign.Center, color = TextBlack, fontWeight = FontWeight.Medium)
     }
 }

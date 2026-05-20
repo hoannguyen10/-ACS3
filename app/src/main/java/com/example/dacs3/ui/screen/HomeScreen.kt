@@ -74,11 +74,11 @@ fun HomeScreen(
     }
 
     val rankName = when {
-        totalExp >= 700 -> "Bậc Thầy"
-        totalExp >= 350 -> "Thông Thái"
-        totalExp >= 150 -> "Kiên Trì"
-        totalExp >= 50 -> "Tập Sự"
-        else -> "Tân Thủ"
+        totalExp >= 700 -> "Người Chơi Bậc Thầy"
+        totalExp >= 350 -> "Người Chơi Thông Thái"
+        totalExp >= 150 -> "Người Chơi Kiên Trì"
+        totalExp >= 50 -> "Người Chơi Tập Sự"
+        else -> "Người Chơi Tân Thủ"
     }
 
     Scaffold(
