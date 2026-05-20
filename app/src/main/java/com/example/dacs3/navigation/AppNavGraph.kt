@@ -10,7 +10,7 @@ fun AppNavGraph() {
 
     NavHost(
         navController = navController,
-        startDestination = "library"
+        startDestination = "goals"
     ) {
 
 
@@ -79,6 +79,10 @@ fun AppNavGraph() {
         // Màn hình Cá nhân
         composable("profile") {
             ProfileScreen(navController = navController)
+        }
+
+        composable("miniquiz") {
+            MiniQuizScreen(navController = navController)
         }
     }
 }

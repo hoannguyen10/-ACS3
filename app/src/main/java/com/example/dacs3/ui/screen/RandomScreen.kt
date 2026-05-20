@@ -30,6 +30,7 @@ import com.example.dacs3.ui.component.AppBottomBar
 import com.example.dacs3.ui.component.AppTopBar
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 // Bảng màu đồng bộ từ RegisterScreen
 private val GreenDeep = Color(0xFF3C7363)
@@ -46,8 +47,12 @@ fun RandomScreen(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
-    val topics = listOf("Lịch Sử", "Khoa học", "Văn Hóa")
+
+    val topics = listOf("Khoa học", "Khác", "Lịch Sử", "Sinh học", "Văn hóa", "Văn Hóa", "Địa lý")
     val currentUserId = "user_test_01"
+
+    // State quản lý số ngày chuỗi để hiển thị
+    var streakDays by remember { mutableIntStateOf(0) }
 
     var randomDocument by remember { mutableStateOf<DocumentSnapshot?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -55,7 +60,6 @@ fun RandomScreen(
     var currentTopicName by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
     var isSaved by remember { mutableStateOf(false) }
-    var savedDocIdInDb by remember { mutableStateOf<String?>(null) }
 
     val rotation by animateFloatAsState(
         targetValue = if (rotated) 180f else 0f,
@@ -63,29 +67,89 @@ fun RandomScreen(
         label = "rotation"
     )
 
-    fun checkIsSaved(originId: String) {
-        db.collection("users")
-            .document(currentUserId)
-            .collection("saved_knowledge")
-            .whereEqualTo("origin_id", originId)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (!snapshot.isEmpty) {
-                    isSaved = true
-                    savedDocIdInDb = snapshot.documents[0].id
-                } else {
-                    isSaved = false
-                    savedDocIdInDb = null
-                }
-            }
+    // Lấy chuỗi hiện tại khi màn hình vừa mở
+    LaunchedEffect(Unit) {
+        val userRef = db.collection("users").document(currentUserId)
+        userRef.get().addOnSuccessListener { snapshot ->
+            streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
+        }
     }
 
+    // Hàm duy trì/tăng chuỗi
+    val maintainStreak = {
+        val userRef = db.collection("users").document(currentUserId)
+        val todayEpochDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+
+        userRef.get().addOnSuccessListener { snapshot ->
+            val lastCheckIn = snapshot.getLong("last_check_in_day") ?: 0L
+            val currentStreak = snapshot.getLong("current_streak") ?: 0L
+
+            when {
+                todayEpochDay == lastCheckIn -> {
+                    streakDays = currentStreak.toInt()
+                }
+                todayEpochDay == lastCheckIn + 1 -> {
+                    val newStreak = currentStreak + 1
+                    userRef.update(
+                        mapOf(
+                            "last_check_in_day" to todayEpochDay,
+                            "current_streak" to newStreak
+                        )
+                    )
+                    streakDays = newStreak.toInt()
+                }
+                else -> {
+                    userRef.set(
+                        mapOf(
+                            "last_check_in_day" to todayEpochDay,
+                            "current_streak" to 1L
+                        ),
+                        SetOptions.merge()
+                    )
+                    streakDays = 1
+                }
+            }
+        }
+    }
+
+    // Đồng bộ tương tác (Vừa đánh dấu đã xem, vừa kiểm tra đã lưu chưa)
+    fun syncUserInteraction(originId: String, topic: String, title: String) {
+        val docRef = db.collection("users")
+            .document(currentUserId)
+            .collection("interactions")
+            .document(originId)
+
+        docRef.get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                isSaved = snapshot.getBoolean("is_saved") ?: false
+                docRef.update("timestamp", com.google.firebase.Timestamp.now())
+            } else {
+                val interactionData = hashMapOf(
+                    "origin_id" to originId,
+                    "topic" to topic,
+                    "title" to title,
+                    "is_seen" to true,
+                    "is_saved" to false,
+                    "timestamp" to com.google.firebase.Timestamp.now()
+                )
+                docRef.set(interactionData)
+                isSaved = false
+            }
+        }.addOnFailureListener {
+            isSaved = false
+        }
+    }
+
+    // Random thẻ mới
     val pickRandomFromSubCollection: () -> Unit = {
         isLoading = true
         rotated = false
         val lastDocId = randomDocument?.id
         isSaved = false
-        savedDocIdInDb = null
+
+
+        // KÍCH HOẠT DUY TRÌ CHUỖI KHI BẤM RANDOM
+        maintainStreak()
 
         val randomTopic = topics.random()
         currentTopicName = randomTopic
@@ -99,7 +163,10 @@ fun RandomScreen(
                     val filteredDocs = docs.documents.filter { it.id != lastDocId }
                     val selected = if (filteredDocs.isNotEmpty()) filteredDocs.random() else docs.documents.random()
                     randomDocument = selected
-                    checkIsSaved(selected.id)
+
+                    // Gọi hàm đồng bộ tương tác với user
+                    val title = selected.getString("title") ?: "Chưa có tiêu đề"
+                    syncUserInteraction(selected.id, randomTopic, title)
                 }
                 isLoading = false
             }
@@ -109,48 +176,32 @@ fun RandomScreen(
             }
     }
 
-    val saveKnowledge = {
+    // Gom chung chức năng Lưu và Bỏ lưu vào 1 hàm Toggle
+    val toggleSaveKnowledge = {
         val doc = randomDocument
         if (doc != null && !isSaving) {
             isSaving = true
-            val data = hashMapOf(
-                "title" to (doc.getString("title") ?: ""),
-                "content" to (doc.getString("content") ?: ""),
-                "detail" to (doc.getString("detail") ?: ""),
-                "topic" to currentTopicName,
-                "origin_id" to doc.id,
-                "timestamp" to com.google.firebase.Timestamp.now()
-            )
-            db.collection("users").document(currentUserId).collection("saved_knowledge")
-                .add(data)
-                .addOnSuccessListener {
-                    savedDocIdInDb = it.id
-                    isSaving = false
-                    isSaved = true
-                    Toast.makeText(context, "Đã lưu thành công", Toast.LENGTH_SHORT).show()
-                }
-        }
-    }
+            val targetState = !isSaved
 
-    val unSaveKnowledge = {
-        val docId = savedDocIdInDb
-        if (docId != null && !isSaving) {
-            isSaving = true
-            db.collection("users").document(currentUserId).collection("saved_knowledge")
-                .document(docId).delete()
+            db.collection("users").document(currentUserId)
+                .collection("interactions").document(doc.id)
+                .update("is_saved", targetState)
                 .addOnSuccessListener {
+                    isSaved = targetState
                     isSaving = false
-                    isSaved = false
-                    savedDocIdInDb = null
-                    Toast.makeText(context, "Đã bỏ lưu", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (isSaved) "Đã lưu" else "Đã bỏ lưu", Toast.LENGTH_SHORT).show()
+                }
+                .addOnFailureListener {
+                    isSaving = false
+                    Toast.makeText(context, "Lỗi khi lưu", Toast.LENGTH_SHORT).show()
                 }
         }
     }
 
     Scaffold(
-        topBar = { AppTopBar(streakDays = 12) },
+        topBar = { AppTopBar(streakDays = streakDays) },
         bottomBar = { AppBottomBar(navController = navController) },
-        containerColor = Color.White // Đồng bộ với nền Register
+        containerColor = Color.White
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             if (randomDocument == null) {
@@ -160,10 +211,6 @@ fun RandomScreen(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusChip(icon = Icons.Default.LocalFireDepartment, text = "12 Day Streak", color = Color(0xFFFF5722))
-                        StatusChip(icon = Icons.AutoMirrored.Filled.MenuBook, text = currentTopicName, color = GreenDeep)
-                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -188,13 +235,13 @@ fun RandomScreen(
                             containerColor = if (isSaved) Color(0xFFE8F5E9) else LightBlueBg,
                             contentColor = if (isSaved) Color(0xFF4CAF50) else GreenDeep,
                             modifier = Modifier.weight(1f),
-                            onClick = { if (isSaved) unSaveKnowledge() else saveKnowledge() }
+                            onClick = { toggleSaveKnowledge() }
                         )
 
                         Button(
                             onClick = { pickRandomFromSubCollection() },
                             modifier = Modifier.weight(1f).height(50.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = GreenDeep), // Đồng bộ màu nút chính
+                            colors = ButtonDefaults.buttonColors(containerColor = GreenDeep),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null)
@@ -208,6 +255,7 @@ fun RandomScreen(
         }
     }
 }
+
 
 @Composable
 fun FlashcardView(
@@ -248,7 +296,7 @@ fun FlashcardView(
                 Text(
                     text = title,
                     fontSize = 28.sp,
-                    fontWeight = FontWeight.Black, // Chuyển sang Black giống tiêu đề Register
+                    fontWeight = FontWeight.Black,
                     color = TextBlack,
                     textAlign = TextAlign.Center,
                     lineHeight = 36.sp
@@ -338,7 +386,7 @@ fun NewInitialView(isLoading: Boolean, onBack: () -> Unit, onRandom: () -> Unit)
                 onClick = onRandom,
                 modifier = Modifier.fillMaxWidth(0.7f).height(60.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = GreenDeep),
-                shape = RoundedCornerShape(12.dp), // Đồng bộ bo góc 12dp
+                shape = RoundedCornerShape(12.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
             ) {
                 Text("MỞ QUÀ NGẪU NHIÊN", fontSize = 16.sp, fontWeight = FontWeight.Black)
