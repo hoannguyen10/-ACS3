@@ -27,6 +27,7 @@ import androidx.navigation.NavController
 import com.example.dacs3.model.LevelStep
 import com.example.dacs3.ui.component.*
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
@@ -46,8 +47,9 @@ data class DayStat(val dayLabel: String, val lessonCount: Int, val quizCount: In
 @Composable
 fun GoalsScreen(navController: NavController) {
     val db = FirebaseFirestore.getInstance()
-    val currentUserId = "user_test_01" // Nên lấy từ Firebase Auth thực tế
-
+// --- THAY ĐỔI: LẤY UID ĐỘNG ---
+    val loggedInUid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var actualDocId by remember { mutableStateOf("") }
     var streakDays by remember { mutableIntStateOf(0) }
     var userTotalExp by remember { mutableIntStateOf(0) }
 
@@ -66,42 +68,67 @@ fun GoalsScreen(navController: NavController) {
     val fullDateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val dayLabelFormat = remember { SimpleDateFormat("EE", Locale("vi", "VN")) }
 
-    // 1. Lắng nghe dữ liệu người dùng
-    LaunchedEffect(Unit) {
-        db.collection("users").document(currentUserId).addSnapshotListener { snapshot, _ ->
-            if (snapshot != null && snapshot.exists()) {
-                streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
-                userTotalExp = (snapshot.getLong("total_exp") ?: 0L).toInt()
+    // 1. Tìm Document ID thực tế từ UID (Chỉ chạy 1 lần khi có loggedInUid)
+    LaunchedEffect(loggedInUid) {
+        if (loggedInUid.isNotEmpty()) {
+            db.collection("users")
+                .whereEqualTo("uid", loggedInUid)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { snapshot ->
+                    val doc = snapshot.documents.firstOrNull()
+                    if (doc != null) actualDocId = doc.id
+                }
+        }
+    }
+
+// 2. Lắng nghe dữ liệu người dùng (EXP, Streak) khi đã có actualDocId
+    LaunchedEffect(actualDocId) {
+        if (actualDocId.isNotEmpty()) {
+            db.collection("users").document(actualDocId).addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
+                    userTotalExp = (snapshot.getLong("total_exp") ?: 0L).toInt()
+                }
             }
         }
     }
 
-    // 2. Truy vấn dữ liệu hoạt động trong 7 ngày
-    LaunchedEffect(Unit) {
-        val calendar = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6) }
-        val startTime = Timestamp(calendar.time)
+// 3. Truy vấn dữ liệu hoạt động trong 7 ngày (Sử dụng actualDocId thay vì currentUserId)
+    LaunchedEffect(actualDocId) {
+        if (actualDocId.isNotEmpty()) {
+            val calendar = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, -6)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+            }
+            val startTime = Timestamp(calendar.time)
 
-        // Lấy bài học mới
-        db.collection("users").document(currentUserId).collection("interactions")
-            .whereGreaterThanOrEqualTo("timestamp", startTime)
-            .addSnapshotListener { s, _ -> rawLessons = s?.documents ?: emptyList() }
+            // Lấy bài học mới (các thẻ đã is_seen)
+            db.collection("users").document(actualDocId).collection("interactions")
+                .whereGreaterThanOrEqualTo("timestamp", startTime)
+                .addSnapshotListener { s, _ -> rawLessons = s?.documents ?: emptyList() }
 
-        // Lấy lịch sử xem lại
-        db.collection("users").document(currentUserId).collection("history_logs")
-            .whereGreaterThanOrEqualTo("timestamp", startTime)
-            .addSnapshotListener { s, _ -> rawHistoryLogs = s?.documents ?: emptyList() }
+            // Lấy lịch sử xem lại
+            db.collection("users").document(actualDocId).collection("history_logs")
+                .whereGreaterThanOrEqualTo("timestamp", startTime)
+                .addSnapshotListener { s, _ -> rawHistoryLogs = s?.documents ?: emptyList() }
 
-        // Lấy lịch sử Quiz
-        db.collection("users").document(currentUserId).collection("quizz_question_history")
-            .whereGreaterThanOrEqualTo("timestamp", startTime)
-            .addSnapshotListener { s, _ -> rawQuizzes = s?.documents ?: emptyList() }
+            // Lấy lịch sử Quiz
+            db.collection("users").document(actualDocId).collection("quizz_question_history")
+                .whereGreaterThanOrEqualTo("timestamp", startTime)
+                .addSnapshotListener { s, _ -> rawQuizzes = s?.documents ?: emptyList() }
+        }
     }
 
-    // 3. Xử lý dữ liệu biểu đồ
+// 4. Xử lý dữ liệu biểu đồ (Giữ nguyên logic tính toán của bạn)
     LaunchedEffect(rawLessons, rawHistoryLogs, rawQuizzes) {
+        if (actualDocId.isEmpty()) return@LaunchedEffect
+
         val lessonMap = mutableMapOf<String, Int>()
         val quizMap = mutableMapOf<String, Int>()
 
+        // Khởi tạo 7 ngày gần nhất với giá trị 0
         for (i in 0..6) {
             val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -i) }
             val key = fullDateFormat.format(cal.time)
@@ -109,6 +136,7 @@ fun GoalsScreen(navController: NavController) {
             quizMap[key] = 0
         }
 
+        // Đếm bài học (interactions + history)
         (rawLessons + rawHistoryLogs).forEach { doc ->
             doc.getTimestamp("timestamp")?.let { ts ->
                 val key = fullDateFormat.format(ts.toDate())
@@ -116,6 +144,7 @@ fun GoalsScreen(navController: NavController) {
             }
         }
 
+        // Đếm Quiz
         rawQuizzes.forEach { doc ->
             doc.getTimestamp("timestamp")?.let { ts ->
                 val key = fullDateFormat.format(ts.toDate())
@@ -123,6 +152,7 @@ fun GoalsScreen(navController: NavController) {
             }
         }
 
+        // Chuyển đổi sang List để hiển thị lên biểu đồ
         weeklyStats = lessonMap.keys.sorted().map { key ->
             val date = fullDateFormat.parse(key)
             DayStat(
@@ -133,7 +163,6 @@ fun GoalsScreen(navController: NavController) {
         }
         isLoadingStats = false
     }
-
     val currentLevelNum = levelPath.lastOrNull { userTotalExp >= it.xpRequired }?.id ?: 1
 
     Box(modifier = Modifier.fillMaxSize()) {

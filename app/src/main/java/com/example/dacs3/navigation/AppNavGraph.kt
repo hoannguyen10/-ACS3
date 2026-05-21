@@ -2,26 +2,19 @@ package com.example.dacs3.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.*
-import com.example.dacs3.ui.screen.* // Đảm bảo import đúng LoginScreen và RegisterScreen
-
-@Composable
+import com.example.dacs3.ui.screen.* @Composable
 fun AppNavGraph() {
     val navController = rememberNavController()
 
     NavHost(
         navController = navController,
-        startDestination = "goals"
+        startDestination = "profile"
     ) {
-
 
         // Màn hình Đăng nhập
         composable("login") {
             LoginScreen(
-                onLoginClick = { email, password ->
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                },
+                navController = navController,
                 onRegisterClick = {
                     navController.navigate("register")
                 },
@@ -29,19 +22,20 @@ fun AppNavGraph() {
             )
         }
 
-        // Màn hình Đăng ký
+        // Màn hình Đăng ký (ĐÃ ĐƯỢC CẬP NHẬT)
         composable("register") {
             RegisterScreen(
                 onLoginClick = {
+                    // Quay lại màn hình đăng nhập
                     navController.popBackStack()
                 },
-                onRegisterClick = { user, email, name, pass ->
-                    // Sau khi tạo tài khoản thành công, có thể cho vào Home luôn
+                onRegisterSuccess = {
+                    // Gọi hàm này khi ViewModel báo đăng ký Firebase thành công
+                    // Chuyển vào Home và xóa sạch BackStack của màn login/register
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
                     }
-                },
-                onGoogleLogin = { /* Xử lý */ }
+                }
             )
         }
 
@@ -83,6 +77,15 @@ fun AppNavGraph() {
 
         composable("miniquiz") {
             MiniQuizScreen(navController = navController)
+        }
+
+        composable("personal_info") {
+            PersonalInfoScreen(navController = navController)
+        }
+
+        // Màn hình Thông tin tài khoản
+        composable("account_info") {
+            AccountInfoScreen(navController = navController)
         }
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.google.firebase.auth.FirebaseAuth // <-- THÊM IMPORT NÀY
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -57,7 +58,23 @@ fun MiniQuizScreen(navController: NavHostController) {
     var errorMessage by remember { mutableStateOf("") }
     var showResultDialog by remember { mutableStateOf(false) }
 
-    val currentUserId = "user_test_01" // Đổi thành ID người dùng thực tế
+    // --- THAY ĐỔI: Lấy UID động thay vì mã cứng "user_test_01" ---
+    val loggedInUid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var actualDocId by remember { mutableStateOf("") }
+
+    // Tìm Document ID thực tế
+    LaunchedEffect(loggedInUid) {
+        if (loggedInUid.isNotEmpty()) {
+            db.collection("users")
+                .whereEqualTo("uid", loggedInUid)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { snapshot ->
+                    val doc = snapshot.documents.firstOrNull()
+                    if (doc != null) actualDocId = doc.id
+                }
+        }
+    }
 
     LaunchedEffect(Unit) {
         db.collection("knowledge_snacks").document("mini_quizz").collection("questions").get()
@@ -245,9 +262,13 @@ fun MiniQuizScreen(navController: NavHostController) {
                                 "is_correct" to isCorrect,
                                 "timestamp" to FieldValue.serverTimestamp()
                             )
-                            db.collection("users").document(currentUserId)
-                                .collection("quizz_question_history")
-                                .add(questionRecord)
+
+                            // --- THAY ĐỔI: Sử dụng actualDocId thay vì currentUserId ---
+                            if (actualDocId.isNotEmpty()) {
+                                db.collection("users").document(actualDocId)
+                                    .collection("quizz_question_history")
+                                    .add(questionRecord)
+                            }
 
                         } else {
                             // BƯỚC 2: TIẾP THEO
@@ -322,8 +343,9 @@ fun MiniQuizScreen(navController: NavHostController) {
             confirmButton = {
                 Button(
                     onClick = {
-                        if (expEarned > 0) {
-                            db.collection("users").document(currentUserId)
+                        // --- THAY ĐỔI: Sử dụng actualDocId thay vì currentUserId ---
+                        if (expEarned > 0 && actualDocId.isNotEmpty()) {
+                            db.collection("users").document(actualDocId)
                                 .update("total_exp", FieldValue.increment(expEarned.toLong()))
                                 .addOnCompleteListener {
                                     showResultDialog = false

@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.dacs3.ui.component.AppBottomBar
 import com.example.dacs3.ui.component.AppTopBar
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -49,7 +50,8 @@ fun RandomScreen(
     val db = FirebaseFirestore.getInstance()
 
     val topics = listOf("Khoa học", "Khác", "Lịch Sử", "Sinh học", "Văn hóa", "Văn Hóa", "Địa lý")
-    val currentUserId = "user_test_01"
+    val loggedInUid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var actualDocId by remember { mutableStateOf("") }
 
     // State quản lý số ngày chuỗi để hiển thị
     var streakDays by remember { mutableIntStateOf(0) }
@@ -67,62 +69,83 @@ fun RandomScreen(
         label = "rotation"
     )
 
-    // Lấy chuỗi hiện tại khi màn hình vừa mở
-    LaunchedEffect(Unit) {
-        val userRef = db.collection("users").document(currentUserId)
-        userRef.get().addOnSuccessListener { snapshot ->
-            streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
+    // 1. Tìm Document ID thực tế (ví dụ: user_test_01) dựa trên field uid
+    LaunchedEffect(loggedInUid) {
+        if (loggedInUid.isNotEmpty()) {
+            db.collection("users")
+                .whereEqualTo("uid", loggedInUid)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { snapshot ->
+                    val doc = snapshot.documents.firstOrNull()
+                    if (doc != null) actualDocId = doc.id
+                }
+        }
+    }
+
+    // 2. Lấy dữ liệu Streak khi đã có actualDocId
+    LaunchedEffect(actualDocId) {
+        if (actualDocId.isNotEmpty()) {
+            db.collection("users").document(actualDocId).addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
+                }
+            }
         }
     }
 
     // Hàm duy trì/tăng chuỗi
     val maintainStreak = {
-        val userRef = db.collection("users").document(currentUserId)
-        val todayEpochDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+        // --- SỬA: Kiểm tra và dùng actualDocId ---
+        if (actualDocId.isNotEmpty()) {
+            val userRef = db.collection("users").document(actualDocId)
+            val todayEpochDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
 
-        userRef.get().addOnSuccessListener { snapshot ->
-            val lastCheckIn = snapshot.getLong("last_check_in_day") ?: 0L
-            val currentStreak = snapshot.getLong("current_streak") ?: 0L
+            userRef.get().addOnSuccessListener { snapshot ->
+                val lastCheckIn = snapshot.getLong("last_check_in_day") ?: 0L
+                val currentStreak = snapshot.getLong("current_streak") ?: 0L
 
-            when {
-                todayEpochDay == lastCheckIn -> {
-                    streakDays = currentStreak.toInt()
-                }
-                todayEpochDay == lastCheckIn + 1 -> {
-                    val newStreak = currentStreak + 1
-                    userRef.update(
-                        mapOf(
-                            "last_check_in_day" to todayEpochDay,
-                            "current_streak" to newStreak
+                when {
+                    todayEpochDay == lastCheckIn -> {
+                        streakDays = currentStreak.toInt()
+                    }
+                    todayEpochDay == lastCheckIn + 1 -> {
+                        val newStreak = currentStreak + 1
+                        userRef.update(
+                            mapOf(
+                                "last_check_in_day" to todayEpochDay,
+                                "current_streak" to newStreak
+                            )
                         )
-                    )
-                    streakDays = newStreak.toInt()
-                }
-                else -> {
-                    userRef.set(
-                        mapOf(
-                            "last_check_in_day" to todayEpochDay,
-                            "current_streak" to 1L
-                        ),
-                        SetOptions.merge()
-                    )
-                    streakDays = 1
+                        streakDays = newStreak.toInt()
+                    }
+                    else -> {
+                        userRef.set(
+                            mapOf(
+                                "last_check_in_day" to todayEpochDay,
+                                "current_streak" to 1L
+                            ),
+                            SetOptions.merge()
+                        )
+                        streakDays = 1
+                    }
                 }
             }
         }
     }
 
     fun syncUserInteraction(originId: String, topic: String, title: String) {
-        val userRef = db.collection("users").document(currentUserId)
+        // --- SỬA: Kiểm tra và dùng actualDocId ---
+        if (actualDocId.isEmpty()) return
+
+        val userRef = db.collection("users").document(actualDocId)
         val interactionRef = userRef.collection("interactions").document(originId)
 
         interactionRef.get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
                 // --- TRƯỜNG HỢP 1: THẺ ĐÃ TỒN TẠI (THẺ CŨ) ---
-                // Cập nhật trạng thái hiển thị nút lưu
                 isSaved = snapshot.getBoolean("is_saved") ?: false
 
-                // Chỉ khi thẻ đã tồn tại mới ghi nhật ký vào history_logs
                 val logData = hashMapOf(
                     "origin_id" to originId,
                     "topic" to topic,
@@ -136,7 +159,6 @@ fun RandomScreen(
                     }
             } else {
                 // --- TRƯỜNG HỢP 2: THẺ MỚI HOÀN TOÀN ---
-                // Chỉ lưu vào interactions, KHÔNG lưu vào history_logs
                 val interactionData = hashMapOf(
                     "origin_id" to originId,
                     "topic" to topic,
@@ -158,7 +180,6 @@ fun RandomScreen(
         rotated = false
         val lastDocId = randomDocument?.id
         isSaved = false
-
 
         // KÍCH HOẠT DUY TRÌ CHUỖI KHI BẤM RANDOM
         maintainStreak()
@@ -191,11 +212,12 @@ fun RandomScreen(
     // Gom chung chức năng Lưu và Bỏ lưu vào 1 hàm Toggle
     val toggleSaveKnowledge = {
         val doc = randomDocument
-        if (doc != null && !isSaving) {
+        // --- SỬA: Đảm bảo actualDocId không rỗng trước khi lưu ---
+        if (doc != null && !isSaving && actualDocId.isNotEmpty()) {
             isSaving = true
             val targetState = !isSaved
 
-            db.collection("users").document(currentUserId)
+            db.collection("users").document(actualDocId)
                 .collection("interactions").document(doc.id)
                 .update("is_saved", targetState)
                 .addOnSuccessListener {
@@ -207,6 +229,8 @@ fun RandomScreen(
                     isSaving = false
                     Toast.makeText(context, "Lỗi khi lưu", Toast.LENGTH_SHORT).show()
                 }
+        } else if (actualDocId.isEmpty()) {
+            Toast.makeText(context, "Đang đồng bộ dữ liệu người dùng...", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -268,6 +292,8 @@ fun RandomScreen(
     }
 }
 
+// ... CÁC HÀM COMPOSABLE BÊN DƯỚI (FlashcardView, NewInitialView, StatusChip, ActionButton) GIỮ NGUYÊN ...
+// (Do không bị ảnh hưởng bởi logic Database)
 
 @Composable
 fun FlashcardView(

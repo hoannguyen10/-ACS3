@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.dacs3.ui.component.AppBottomBar
 import com.example.dacs3.ui.component.AppTopBar
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
 private val GreenDeep = Color(0xFF3C7363)
@@ -76,7 +77,10 @@ fun LibraryScreen(navController: NavController) {
     var search by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var streakDays by remember { mutableIntStateOf(0) }
-    val currentUserId = "user_test_01"
+
+    // --- THAY ĐỔI TẠI ĐÂY: LẤY LOGGED IN UID VÀ TẠO STATE LƯU ACTUAL DOC ID ---
+    val loggedInUid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var actualDocId by remember { mutableStateOf("") }
 
     // States lưu trữ dữ liệu
     var allKnowledgeBase by remember { mutableStateOf<List<KnowledgeItem>>(emptyList()) }
@@ -109,10 +113,31 @@ fun LibraryScreen(navController: NavController) {
         }
     }
 
-    // Cập nhật trạng thái Lưu trực tiếp từ Flashcard chi tiết
+    // --- THAY ĐỔI TẠI ĐÂY: EFFECT ĐỂ TÌM DOCUMENT ID THỰC TẾ ---
+    LaunchedEffect(loggedInUid) {
+        if (loggedInUid.isNotEmpty()) {
+            db.collection("users")
+                .whereEqualTo("uid", loggedInUid)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { snapshot ->
+                    val document = snapshot.documents.firstOrNull()
+                    if (document != null) {
+                        actualDocId = document.id // Lấy được "user_test_01" hoặc id tương ứng
+                    }
+                }
+        }
+    }
+
+    // Cập nhật trạng thái Lưu trực tiếp từ Flashcard chi tiết (Sử dụng actualDocId)
     fun toggleSaveStatus(item: KnowledgeItem) {
+        if (actualDocId.isEmpty()) {
+            Toast.makeText(context, "Đang tải dữ liệu người dùng...", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val newState = !item.isSaved
-        db.collection("users").document(currentUserId)
+        db.collection("users").document(actualDocId)
             .collection("interactions").document(item.id)
             .update("is_saved", newState)
             .addOnSuccessListener {
@@ -120,12 +145,9 @@ fun LibraryScreen(navController: NavController) {
             }
     }
 
+    // --- THAY ĐỔI TẠI ĐÂY: TÁCH LÀM 2 LAUNCHED EFFECT ĐỂ TỐI ƯU ---
+    // 1. Tải kiến thức chung (Chạy ngay lập tức khi vào màn hình)
     LaunchedEffect(Unit) {
-        db.collection("users").document(currentUserId).addSnapshotListener { snapshot, error ->
-            if (snapshot != null && snapshot.exists()) {
-                streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
-            }
-        }
         val topics = listOf("Khoa học", "Khác", "Lịch Sử", "Sinh học", "Văn hóa", "Văn Hóa", "Địa lý")
         val tempKnowledgeList = mutableListOf<KnowledgeItem>()
         var fetchCount = 0
@@ -152,47 +174,58 @@ fun LibraryScreen(navController: NavController) {
                     }
                 }
         }
+    }
 
-        db.collection("users").document(currentUserId).collection("interactions")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    isLoading = false
-                    return@addSnapshotListener
+    // 2. Tải dữ liệu cá nhân (Chỉ chạy khi đã tìm thấy actualDocId)
+    LaunchedEffect(actualDocId) {
+        if (actualDocId.isNotEmpty()) {
+            db.collection("users").document(actualDocId).addSnapshotListener { snapshot, error ->
+                if (snapshot != null && snapshot.exists()) {
+                    streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
                 }
+            }
 
-                if (snapshot != null) {
-                    val tempUnlockedIds = mutableSetOf<String>()
-                    val tempSavedIds = mutableSetOf<String>()
-                    val tempSavedList = mutableListOf<KnowledgeItem>()
-
-                    snapshot.documents.forEach { doc ->
-                        val id = doc.id
-                        val isSeen = doc.getBoolean("is_seen") ?: false
-                        val isSaved = doc.getBoolean("is_saved") ?: false
-
-                        if (isSeen) tempUnlockedIds.add(id)
-
-                        if (isSaved) {
-                            tempSavedIds.add(id)
-                            tempSavedList.add(
-                                KnowledgeItem(
-                                    id = id,
-                                    title = doc.getString("title") ?: "Chưa có tiêu đề",
-                                    content = "",
-                                    topic = doc.getString("topic") ?: "Khác",
-                                    isUnlocked = true,
-                                    isSaved = true
-                                )
-                            )
-                        }
+            db.collection("users").document(actualDocId).collection("interactions")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        isLoading = false
+                        return@addSnapshotListener
                     }
 
-                    unlockedIds = tempUnlockedIds
-                    savedIds = tempSavedIds
-                    savedListDetail = tempSavedList
+                    if (snapshot != null) {
+                        val tempUnlockedIds = mutableSetOf<String>()
+                        val tempSavedIds = mutableSetOf<String>()
+                        val tempSavedList = mutableListOf<KnowledgeItem>()
+
+                        snapshot.documents.forEach { doc ->
+                            val id = doc.id
+                            val isSeen = doc.getBoolean("is_seen") ?: false
+                            val isSaved = doc.getBoolean("is_saved") ?: false
+
+                            if (isSeen) tempUnlockedIds.add(id)
+
+                            if (isSaved) {
+                                tempSavedIds.add(id)
+                                tempSavedList.add(
+                                    KnowledgeItem(
+                                        id = id,
+                                        title = doc.getString("title") ?: "Chưa có tiêu đề",
+                                        content = "",
+                                        topic = doc.getString("topic") ?: "Khác",
+                                        isUnlocked = true,
+                                        isSaved = true
+                                    )
+                                )
+                            }
+                        }
+
+                        unlockedIds = tempUnlockedIds
+                        savedIds = tempSavedIds
+                        savedListDetail = tempSavedList
+                    }
+                    isLoading = false
                 }
-                isLoading = false
-            }
+        }
     }
 
     Scaffold(
@@ -238,15 +271,11 @@ fun LibraryScreen(navController: NavController) {
                         isSaved = currentItem.isSaved,
                         onFlip = {
                             rotated = !rotated
-
-
                         }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-
-
 
                 Button(
                     onClick = { toggleSaveStatus(currentItem) },
@@ -343,7 +372,6 @@ fun LibraryScreen(navController: NavController) {
 
                 item { Spacer(modifier = Modifier.height(25.dp)) }
 
-                // PHÂN TÁCH LOGIC GIAO DIỆN KHI ĐANG TÌM KIẾM VS BÌNH THƯỜNG
                 if (search.isEmpty()) {
                     // --- A. TRẠNG THÁI BÌNH THƯỜNG (HIỆN CHUYÊN MỤC + ĐÃ LƯU) ---
                     val uniqueCategories = allKnowledgeBase.map { it.topic }.distinct()
@@ -432,7 +460,7 @@ fun LibraryScreen(navController: NavController) {
                         }
                     }
                 } else {
-                    // --- B. TRẠNG THÁI TÌM KIẾM (HIỆN KẾT QUẢ TÌM KIẾM TOÀN CỤC) ---
+                    // --- B. TRẠNG THÁI TÌM KIẾM ---
                     item {
                         Text(
                             text = "Kết quả tìm kiếm phù hợp",
@@ -444,19 +472,14 @@ fun LibraryScreen(navController: NavController) {
 
                     item { Spacer(modifier = Modifier.height(15.dp)) }
 
-                    // CẬP NHẬT LOGIC TÌM KIẾM TẠI ĐÂY
                     val searchResults = allKnowledgeBase.filter { item ->
-                        // 1. Chỉ lấy những thẻ người dùng đã từng xem qua (đã mở khóa)
                         val isUnlocked = unlockedIds.contains(item.id)
-
-                        // 2. Kiểm tra từ khóa có nằm trong Tiêu đề HOẶC Chuyên mục không
                         val matchTitle = item.title.contains(search, ignoreCase = true)
                         val matchTopic = item.topic.contains(search, ignoreCase = true)
-
                         isUnlocked && (matchTitle || matchTopic)
                     }.map {
                         it.copy(
-                            isUnlocked = true, // Chắc chắn là đã mở khóa vì đã qua filter
+                            isUnlocked = true,
                             isSaved = savedIds.contains(it.id)
                         )
                     }

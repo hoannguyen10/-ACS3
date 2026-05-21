@@ -1,5 +1,8 @@
 package com.example.dacs3.ui.screen
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -21,7 +25,12 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.dacs3.model.RegisterState
+import com.example.dacs3.model.RegisterViewModel
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 
 private val GreenDeep = Color(0xFF3C7363)
 private val GreenMedium = Color(0xFF84D9BA)
@@ -30,10 +39,13 @@ private val TextBlack = Color(0xFF121212)
 
 @Composable
 fun RegisterScreen(
-    onRegisterClick: (String, String, String, String) -> Unit = { _, _, _, _ -> },
-    onGoogleLogin: () -> Unit = {},
-    onLoginClick: () -> Unit = {}
+    viewModel: RegisterViewModel = viewModel(), // Khởi tạo ViewModel
+    onLoginClick: () -> Unit = {},
+    onRegisterSuccess: () -> Unit = {} // Chuyển màn hình khi thành công
 ) {
+    val context = LocalContext.current
+    val registerState by viewModel.registerState.collectAsState()
+
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var fullName by remember { mutableStateOf("") }
@@ -42,6 +54,53 @@ fun RegisterScreen(
 
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
+
+    // ==========================================================
+    // CẤU HÌNH GOOGLE SIGN-IN LAUNCHER
+    // ==========================================================
+    val gso = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            // THAY MÃ CLIENT ID CỦA BẠN VÀO ĐÂY
+            .requestIdToken("886043032657-j8t1tjgstl5n9g5o1387schu146v4p03.apps.googleusercontent.com")
+            .requestEmail()
+            .build()
+    }
+
+    val googleSignInClient = remember {
+        GoogleSignIn.getClient(context, gso)
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            account.idToken?.let { token ->
+                viewModel.signInWithGoogle(token)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Đăng nhập Google thất bại", Toast.LENGTH_SHORT).show()
+        }
+    }
+    // ==========================================================
+
+    // Xử lý các trạng thái từ ViewModel
+    LaunchedEffect(registerState) {
+        when (registerState) {
+            is RegisterState.Success -> {
+                Toast.makeText(context, "Đăng ký thành công!", Toast.LENGTH_SHORT).show()
+                viewModel.resetState()
+                onRegisterSuccess() // Gọi callback để chuyển hướng về màn Home/Login
+            }
+            is RegisterState.Error -> {
+                val errorMsg = (registerState as RegisterState.Error).message
+                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                viewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -52,7 +111,6 @@ fun RegisterScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(40.dp))
-
 
         Text(
             text = "MindSnack",
@@ -66,7 +124,6 @@ fun RegisterScreen(
         )
 
         Spacer(modifier = Modifier.height(30.dp))
-
 
         Text(
             text = "Tham gia cộng đồng\nhọc tập",
@@ -86,8 +143,6 @@ fun RegisterScreen(
         )
 
         Spacer(modifier = Modifier.height(32.dp))
-
-
 
         RegisterTextField(
             label = "TÊN ĐĂNG NHẬP",
@@ -119,7 +174,6 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-
         RegisterPasswordField(
             label = "MẬT KHẨU",
             value = password,
@@ -129,7 +183,6 @@ fun RegisterScreen(
         )
 
         Spacer(modifier = Modifier.height(16.dp))
-
 
         RegisterPasswordField(
             label = "XÁC NHẬN MẬT KHẨU",
@@ -141,22 +194,32 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-
         Button(
-            onClick = { onRegisterClick(username, email, fullName, password) },
+            onClick = {
+                if (password == confirmPassword) {
+                    viewModel.registerUser(username, email, fullName, password)
+                } else {
+                    Toast.makeText(context, "Mật khẩu xác nhận không khớp!", Toast.LENGTH_SHORT).show()
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(60.dp),
-            shape = RoundedCornerShape(12.dp), // Đồng bộ bo góc 12dp như login
+            shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = GreenDeep),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+            enabled = registerState !is RegisterState.Loading // Khóa nút khi đang load
         ) {
-            Text(
-                "TẠO TÀI KHOẢN",
-                color = Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 18.sp
-            )
+            if (registerState is RegisterState.Loading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+            } else {
+                Text(
+                    "TẠO TÀI KHOẢN",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -175,12 +238,16 @@ fun RegisterScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-
+        // Nút Tiếp tục với Google
         OutlinedButton(
-            onClick = onGoogleLogin,
+            onClick = {
+                // Khởi chạy màn hình chọn tài khoản Google
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(2.dp, GreenDeep)
+            border = BorderStroke(2.dp, GreenDeep),
+            enabled = registerState !is RegisterState.Loading
         ) {
             Text(
                 "Tiếp tục với Google",
@@ -189,7 +256,6 @@ fun RegisterScreen(
                 fontWeight = FontWeight.Black
             )
         }
-
 
         Row(
             modifier = Modifier

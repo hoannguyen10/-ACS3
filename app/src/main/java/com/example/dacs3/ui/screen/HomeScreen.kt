@@ -25,6 +25,7 @@ import androidx.navigation.NavHostController
 import com.example.dacs3.R // Đảm bảo đúng thư mục R dự án của bạn
 import com.example.dacs3.ui.component.AppBottomBar
 import com.example.dacs3.ui.component.AppTopBar
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
 // Bảng màu đồng bộ
@@ -39,29 +40,44 @@ fun HomeScreen(
     onLessonClick: (String) -> Unit
 ) {
     val db = FirebaseFirestore.getInstance()
-    val currentUserId = "user_test_01"
+
+    // 1. Lấy UID của người dùng đang đăng nhập thực tế từ hệ thống Auth
+    val auth = FirebaseAuth.getInstance()
+    val loggedInUid = auth.currentUser?.uid ?: ""
 
     var totalExp by remember { mutableIntStateOf(0) }
     var streakDays by remember { mutableIntStateOf(0) }
     var unlockedCount by remember { mutableIntStateOf(0) }
+    var fullName by remember { mutableStateOf("Người dùng") }
 
+    LaunchedEffect(loggedInUid) {
+        if (loggedInUid.isNotEmpty()) {
+            // 2. Thay vì tìm theo tên Document ID, ta tìm document nào có field "uid" khớp với UID vừa đăng nhập
+            db.collection("users")
+                .whereEqualTo("uid", loggedInUid)
+                .addSnapshotListener { querySnapshot, error ->
+                    // Lấy document đầu tiên tìm thấy
+                    val document = querySnapshot?.documents?.firstOrNull()
 
-    LaunchedEffect(Unit) {
-        // 1. Lấy Tổng EXP và Streak từ Firebase
-        db.collection("users").document(currentUserId).addSnapshotListener { snapshot, _ ->
-            if (snapshot != null && snapshot.exists()) {
-                totalExp = (snapshot.getLong("total_exp") ?: 0L).toInt()
-                streakDays = (snapshot.getLong("current_streak") ?: 0L).toInt()
-            }
-        }
+                    if (document != null && document.exists()) {
+                        // 3. Lấy dữ liệu thông thường
+                        totalExp = (document.getLong("total_exp") ?: 0L).toInt()
+                        streakDays = (document.getLong("current_streak") ?: 0L).toInt()
+                        fullName = document.getString("full_name") ?: "Người dùng"
 
-        // 2. Lấy số lượng thẻ đã khám phá
-        db.collection("users").document(currentUserId).collection("interactions")
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null) {
-                    unlockedCount = snapshot.documents.count { it.getBoolean("is_seen") == true }
+                        // 4. Để lấy sub-collection "interactions", ta dùng ID thực tế của document đó (ví dụ "user_test_01")
+                        val actualDocId = document.id
+                        db.collection("users").document(actualDocId).collection("interactions")
+                            .addSnapshotListener { interactionSnapshot, _ ->
+                                if (interactionSnapshot != null) {
+                                    unlockedCount = interactionSnapshot.documents.count {
+                                        it.getBoolean("is_seen") == true
+                                    }
+                                }
+                            }
+                    }
                 }
-            }
+        }
     }
 
     // --- CẬP NHẬT LẠI LOGIC TÍNH CẤP ĐỘ VÀ TÊN BẬC ---
